@@ -1,0 +1,905 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  ******************************************************************************
+  * @attention
+  *
+  * <h2><center>&copy; Copyright (c) 2020 STMicroelectronics.
+  * All rights reserved.</center></h2>
+  *
+  * This software component is licensed by ST under BSD 3-Clause license,
+  * the "License"; You may not use this file except in compliance with the
+  * License. You may obtain a copy of the License at:
+  *                        opensource.org/licenses/BSD-3-Clause
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+#include "app_entry.h"
+#include "app_common.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include "app_user.h"
+#include "stm32_seq.h"
+//#include "app_bluenrg_2.h"
+#include "imu.h"
+#include "ai.h"
+#include "eeprom.h"
+#include "flash_log.h"
+#include "utilities_conf.h"
+#include "stm32_lpm_if.h"
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+enum{
+  BLE_ENABLED = 0,
+  BLE_DISABLED= 1,
+
+};
+
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
+CRC_HandleTypeDef hcrc;
+
+LPTIM_HandleTypeDef hlptim1;
+
+RTC_HandleTypeDef hrtc;
+
+/* USER CODE BEGIN PV */
+int predicted_value;
+float predicted_prob;
+uint32_t start_t, end_t,  dur_t;
+uint32_t pat1_t;
+uint32_t washend_t;
+uint16_t raw = 0;
+uint8_t device_in_sleep = 0;
+uint16_t no_of_Windows = 0;
+
+
+uint8_t ble_schedule_enable = 1;
+uint8_t ble_connection_on = 0;
+uint8_t ble_enabled = 0;
+uint32_t battery_val = 0;
+
+uint32_t battery_count = 0;
+
+uint32_t NbrOfSectorToBeErased;
+uint32_t NbrOfDataToBeWritten;
+
+uint32_t SysLogNbrOfSecToBeErased;
+uint32_t SysLogNbrOfDataToBeWritten;
+
+uint64_t dominant_hand = 1;
+uint64_t wearing_hand = 1;
+
+uint64_t dominant_data = 3;
+uint64_t wearing_data = 3;
+uint64_t green_timeout_data = 0;
+uint64_t yellow_timeout_data = 0;
+uint64_t red_timeout_data = 0;
+uint64_t alert_timeout_data = 0;
+uint64_t snooze_timeout_data = 0;
+uint8_t new_dom_wear_received = 0;
+uint8_t new_timout_received = 0;
+uint8_t new_setting_received = 0;
+
+uint8_t cmd_index = 0;
+
+uint64_t green_timeout =20;
+uint64_t yellow_timeout = 20;
+uint64_t red_timeout = 20;
+uint64_t alert_timeout = 20;
+uint64_t snooze_timeout = 30;
+
+
+uint64_t flash_buf[NUMBER_OF_SETTINGS];
+uint64_t sys_log_flash_buf[512];
+uint64_t test_val = 0;
+uint8_t debug_acc = 0;
+
+volatile uint8_t vbat;
+volatile uint8_t vbat_check_cnt = 0;
+volatile uint8_t bat_low = 0;
+volatile uint8_t bat_changed_low = 0;
+
+volatile uint8_t bat_low_check_cnt = 0;
+volatile uint8_t bat_ex_low_check_cnt = 0;
+volatile uint8_t bat_level = BAT_OK;
+volatile uint8_t bat_level_changed= 0;
+volatile uint8_t run_bat_check = 0;
+
+uint8_t ble_initialized = 0;
+uint8_t ble_adv_cancelled = 0;
+uint8_t ble_disconnected = 0;
+uint32_t lptim_counter_cnt = 0;
+uint32_t lptim_cnt_match = 0;
+uint8_t lptim_contex = 0;
+
+uint8_t rtc_initialized = 0;
+uint8_t adc_initialized = 0;
+
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_RTC_Init(void);
+static void MX_RF_Init(void);
+static void MX_CRC_Init(void);
+static void MX_ADC1_Init(void);
+static void MX_LPTIM1_Init(void);
+/* USER CODE BEGIN PFP */
+void ACC_INT1_GPIO_DeInit(void);
+void ACC_INT1_GPIO_Init(void);
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+//volatile uint8_t battery_state = BATTERY_LOW;
+volatile uint8_t start_inference = 0;
+volatile uint8_t device_inactive = 0;
+volatile uint8_t set_discoverable = 0;
+volatile uint8_t ble_state = BLE_NON_DISCOVERABLE;
+volatile uint8_t ble_connect_status = BLE_NOT_CONNECTED;
+volatile uint8_t charge_active = 0;
+volatile uint8_t ble_success = 0;
+volatile uint8_t set_non_discoverable;
+
+volatile uint8_t double_tap_flag = 0;
+volatile uint8_t is_charging = 0;
+volatile uint8_t chrg_state_change = 0;
+volatile uint8_t run_ble_seq = 0;
+volatile uint8_t mlc_changed_flag = 0;
+RTC_DateTypeDef date_struct_t;
+RTC_TimeTypeDef time_struct_t;
+
+extern uint8_t pat_cnt;
+
+uint8_t ble_discnt_log = 0;
+uint16_t temp_data_win_cnt = 0;
+
+//int illegal_instruction_execution(void) {
+//  int (*bad_instruction)(void) = (void *)0xE0000000;
+//  return bad_instruction();
+//}
+/* USER CODE END 0 */
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+  /* USER CODE BEGIN 1 */
+
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+
+  /* USER CODE BEGIN Init */
+//  HAL_DBGMCU_EnableDBGStopMode();
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
+  SystemClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_RTC_Init();
+  MX_RF_Init();
+  MX_CRC_Init();
+  MX_ADC1_Init();
+  MX_LPTIM1_Init();
+  /* USER CODE BEGIN 2 */
+  AI_Init();
+  //store_config_Flash(FLASH_CONFIG_ALERT_DUR,y);
+//  uint32_t retv = 0;
+  /* USER CODE END 2 */
+
+  /* Init code for STM32_WPAN */
+  APPE_Init();
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  load_settings_from_flash();
+  init_warning_RTC_timer();
+  IMU_Init();
+  // switch on interrupt after imu init
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+//  EEPROM_Erase_memory();
+
+  set_discoverable = 0;
+
+  device_inactive = 0; //temporarily disable sleep to test mlc
+
+  /*
+   * This is to erase the SystemLog Flash memory
+   * Uncomment and use it if needed to clear for testing
+   * */
+//  int32_t erase_res = Flash_Erase_system_log_page();
+
+
+
+  system_log_flash_req = 0; // start with flash erase
+  flash_request_number = 0; // start with flash erase
+
+  ble_state = BLE_NON_DISCOVERABLE;
+
+  	system_log(DEVICE_RESET);
+
+	for(int i = 0; i < 10;i++){
+		HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
+		HAL_GPIO_TogglePin(LED_RED_GPIO_Port, LED_RED_Pin);
+		HAL_GPIO_TogglePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin);
+		HAL_Delay(50);
+	}
+
+	HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin, GPIO_PIN_RESET);
+
+	IMU_Init();
+	clear_hw_predict_data();
+  	run_ble_seq = 1;
+
+	while (1)
+	{
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+
+			if(run_ble_seq == 1){
+
+				do{
+					UTIL_SEQ_Run( UTIL_SEQ_DEFAULT );
+				}while(ble_initialized == 0);
+
+				if (chrg_state_change == 1) {
+
+					disable_warning();
+
+					imu_int_enabled = 0;
+					IMU_drdy_int_disable();
+
+					UTIL_SEQ_SetTask(1 << CFG_TASK_SEND_ADV_REQ_ID, CFG_SCH_PRIO_0);
+
+					do{
+						UTIL_SEQ_Run( UTIL_SEQ_DEFAULT );
+					}while((ble_adv_cancelled == 0) && (ble_disconnected == 0) );
+
+					run_ble_seq = 0;
+					chrg_state_change = 0; // do this here
+
+					HAL_Delay(20);
+
+					IMU_drdy_int_enable();
+//					new_imu_data = 1;
+					imu_int_enabled = 1;
+					IMU_Read();
+
+					if (ble_disconnected == 1) {
+						ble_disconnected = 0;
+						HAL_LPTIM_Counter_Stop_IT(&hlptim1);
+						HAL_GPIO_WritePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin, GPIO_PIN_RESET);
+						system_log(BLE_DISCONNECT);
+					}
+
+					if (ble_adv_cancelled == 1) {
+						ble_adv_cancelled = 0;
+						system_log(BLE_ADV_CANCEL);
+					}
+
+					if(new_setting_received == 1) {
+					  new_setting_received = 0;
+					  load_settings_from_flash();
+					  init_warning_RTC_timer();
+					}
+					restore_warning_LED();
+				}
+
+				run_ble_seq = 0;
+			}
+
+//		  if(bat_low == 1){
+//			  if (bat_changed_low == 1) {
+//				system_log(LOW_BATTERY);
+//				bat_changed_low = 0;
+//			  }
+//
+//			  if(is_charging == 0){
+//				  HAL_GPIO_WritePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin, GPIO_PIN_SET);
+//			  }else{
+//				  HAL_GPIO_WritePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin, GPIO_PIN_RESET);
+//			  }
+//		  }
+
+			if(run_bat_check==1){
+				run_bat_check = 0;
+
+				if(bat_level_changed == 1){
+					bat_level_changed = 0;
+					if(bat_level == BAT_EXTREMELY_LOW){
+						system_log(EX_LOW_BATTERY);
+						for(int i=0; i<4; i++){
+							motor_operation(MOTOR_ON);
+							HAL_Delay(100);
+							motor_operation(MOTOR_OFF);
+							HAL_Delay(100);
+						}
+					}else if(bat_level == BAT_LOW){
+						system_log(LOW_BATTERY);
+						for(int i=0; i<2; i++){
+							motor_operation(MOTOR_ON);
+							HAL_Delay(100);
+							motor_operation(MOTOR_OFF);
+							HAL_Delay(100);
+					    }
+					}
+				}
+
+
+				if(((bat_level == BAT_LOW) || (bat_level == BAT_EXTREMELY_LOW)) && (is_charging == 0)){
+
+					int led_g_state = HAL_GPIO_ReadPin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
+					int led_r_state = HAL_GPIO_ReadPin(LED_RED_GPIO_Port, LED_RED_Pin);
+
+					HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET);
+					HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_RESET);
+
+					for(int i=0; i<((bat_level == BAT_LOW)? 4:6); i++){
+						HAL_GPIO_TogglePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin);
+						HAL_Delay(100);
+				    }
+
+					HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, led_g_state);
+					HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, led_r_state);
+				}
+			}
+
+
+
+			if(warning_state_changed==1){
+				warning_state_changed = 0;
+				execute_warning();
+			}
+
+		  if(device_inactive==0) {
+			  preprocess_data();
+			  AI_Process();
+//			  temp_data_win_cnt = get_logged_window_cnt();
+		  }
+
+		  //Sleep on Inactivity interrupt and no pending ble sequence to run and no pending warning state execution
+		  if ((device_inactive == 1) && (run_ble_seq == 0) && (warning_state_changed!=1)){
+
+			  imu_int_enabled = 0;
+			  IMU_drdy_int_disable();
+			  ACC_INT1_GPIO_DeInit();
+			  HAL_Delay(50);
+
+//			  HAL_GPIO_TogglePin(LED_RED_GPIO_Port, LED_RED_Pin);
+//			  HAL_Delay(200);
+//			  HAL_GPIO_TogglePin(LED_RED_GPIO_Port, LED_RED_Pin);
+
+//			  HAL_SuspendTick();
+			  device_in_sleep = 1;
+
+//			  HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
+			  //---Return from Power Off--//
+
+			  UTILS_ENTER_CRITICAL_SECTION( );
+//			  HAL_ADC_DeInit(&hadc1);
+//			  BSP_SPI1_DeInit();
+			  PWR_EnterStopMode();
+			  PWR_ExitStopMode();
+//			  BSP_SPI1_Init();
+//			  MX_ADC1_Init();
+			  UTILS_EXIT_CRITICAL_SECTION( );
+
+
+			  device_in_sleep = 0;
+//			  HAL_ResumeTick();
+			  SystemClock_Config();
+
+
+			  ACC_INT1_GPIO_Init();
+			  IMU_drdy_int_enable();
+			  imu_int_enabled = 1;
+			  IMU_Read();
+
+
+			  if(device_inactive == 0){
+				system_log(MLC_WAKEUP);
+			  }
+		  }
+  }
+  /* USER CODE END 3 */
+}
+
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+  /** Configure LSE Drive Capability
+  */
+  HAL_PWR_EnableBkUpAccess();
+  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_HSE
+                              |RCC_OSCILLATORTYPE_LSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure the SYSCLKSource, HCLK, PCLK1 and PCLK2 clocks dividers
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK4|RCC_CLOCKTYPE_HCLK2
+                              |RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSE;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLK2Divider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLK4Divider = RCC_SYSCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Initializes the peripherals clocks
+  */
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_SMPS|RCC_PERIPHCLK_RFWAKEUP
+                              |RCC_PERIPHCLK_RTC|RCC_PERIPHCLK_LPTIM1
+                              |RCC_PERIPHCLK_ADC;
+  PeriphClkInitStruct.Lptim1ClockSelection = RCC_LPTIM1CLKSOURCE_LSE;
+  PeriphClkInitStruct.AdcClockSelection = RCC_ADCCLKSOURCE_SYSCLK;
+  PeriphClkInitStruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
+  PeriphClkInitStruct.RFWakeUpClockSelection = RCC_RFWKPCLKSOURCE_LSE;
+  PeriphClkInitStruct.SmpsClockSelection = RCC_SMPSCLKSOURCE_HSE;
+  PeriphClkInitStruct.SmpsDivSelection = RCC_SMPSCLKDIV_RANGE1;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN Smps */
+
+  /* USER CODE END Smps */
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+  /** Common config
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc1.Init.Resolution = ADC_RESOLUTION_8B;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.OversamplingMode = DISABLE;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_16;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+  adc_initialized = 1;
+  /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief CRC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_CRC_Init(void)
+{
+
+  /* USER CODE BEGIN CRC_Init 0 */
+
+  /* USER CODE END CRC_Init 0 */
+
+  /* USER CODE BEGIN CRC_Init 1 */
+
+  /* USER CODE END CRC_Init 1 */
+  hcrc.Instance = CRC;
+  hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_ENABLE;
+  hcrc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_ENABLE;
+  hcrc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_NONE;
+  hcrc.Init.OutputDataInversionMode = CRC_OUTPUTDATA_INVERSION_DISABLE;
+  hcrc.InputDataFormat = CRC_INPUTDATA_FORMAT_BYTES;
+  if (HAL_CRC_Init(&hcrc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN CRC_Init 2 */
+
+  /* USER CODE END CRC_Init 2 */
+
+}
+
+/**
+  * @brief LPTIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_LPTIM1_Init(void)
+{
+
+  /* USER CODE BEGIN LPTIM1_Init 0 */
+
+  /* USER CODE END LPTIM1_Init 0 */
+
+  /* USER CODE BEGIN LPTIM1_Init 1 */
+
+  /* USER CODE END LPTIM1_Init 1 */
+  hlptim1.Instance = LPTIM1;
+  hlptim1.Init.Clock.Source = LPTIM_CLOCKSOURCE_APBCLOCK_LPOSC;
+  hlptim1.Init.Clock.Prescaler = LPTIM_PRESCALER_DIV128;
+  hlptim1.Init.Trigger.Source = LPTIM_TRIGSOURCE_SOFTWARE;
+  hlptim1.Init.OutputPolarity = LPTIM_OUTPUTPOLARITY_HIGH;
+  hlptim1.Init.UpdateMode = LPTIM_UPDATE_IMMEDIATE;
+  hlptim1.Init.CounterSource = LPTIM_COUNTERSOURCE_INTERNAL;
+  hlptim1.Init.Input1Source = LPTIM_INPUT1SOURCE_GPIO;
+  hlptim1.Init.Input2Source = LPTIM_INPUT2SOURCE_GPIO;
+  if (HAL_LPTIM_Init(&hlptim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN LPTIM1_Init 2 */
+
+  /* USER CODE END LPTIM1_Init 2 */
+
+}
+
+/**
+  * @brief RF Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RF_Init(void)
+{
+
+  /* USER CODE BEGIN RF_Init 0 */
+
+  /* USER CODE END RF_Init 0 */
+
+  /* USER CODE BEGIN RF_Init 1 */
+
+  /* USER CODE END RF_Init 1 */
+  /* USER CODE BEGIN RF_Init 2 */
+
+  /* USER CODE END RF_Init 2 */
+
+}
+
+/**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+	rtc_initialized = 1;
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+#undef CFG_RTC_ASYNCH_PRESCALER
+#define CFG_RTC_ASYNCH_PRESCALER (128-1)
+
+#undef CFG_RTC_SYNCH_PRESCALER
+#define CFG_RTC_SYNCH_PRESCALER (256-1)
+  /* USER CODE END RTC_Init 1 */
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = CFG_RTC_ASYNCH_PRESCALER;
+  hrtc.Init.SynchPrediv = CFG_RTC_SYNCH_PRESCALER;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN Check_RTC_BKUP */
+  if(HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1) == 0x1234){
+	  return; //already initialized
+  }
+
+  HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR1, 0x1234);
+  /* USER CODE END Check_RTC_BKUP */
+
+  /** Initialize RTC and set the Time and Date
+  */
+  sTime.Hours = 0x13;
+  sTime.Minutes = 0x44;
+  sTime.Seconds = 0x24;
+  sTime.SubSeconds = 0x0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_WEDNESDAY;
+  sDate.Month = RTC_MONTH_FEBRUARY;
+  sDate.Date = 0x10;
+  sDate.Year = 0x21;
+
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Enable the WakeUp
+  */
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 0, RTC_WAKEUPCLOCK_RTCCLK_DIV16) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
+
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(EEPROM_HOLD_GPIO_Port, EEPROM_HOLD_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, EEPROM_W_Pin|EEPROM_CS_Pin|BAT_GND_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, ACC_CS_Pin|LED_RED_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, LED_GREEN_Pin|LED_BLUE_Pin|MOTOR_D_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : ACC_INT_Pin */
+  GPIO_InitStruct.Pin = ACC_INT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(ACC_INT_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : EEPROM_HOLD_Pin */
+  GPIO_InitStruct.Pin = EEPROM_HOLD_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(EEPROM_HOLD_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : ACC_INT2_Pin */
+  GPIO_InitStruct.Pin = ACC_INT2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(ACC_INT2_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : EEPROM_W_Pin EEPROM_CS_Pin */
+  GPIO_InitStruct.Pin = EEPROM_W_Pin|EEPROM_CS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : ACC_CS_Pin */
+  GPIO_InitStruct.Pin = ACC_CS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(ACC_CS_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : LED_GREEN_Pin LED_BLUE_Pin MOTOR_D_Pin */
+  GPIO_InitStruct.Pin = LED_GREEN_Pin|LED_BLUE_Pin|MOTOR_D_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : BAT_GND_Pin */
+  GPIO_InitStruct.Pin = BAT_GND_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(BAT_GND_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : LED_RED_Pin */
+  GPIO_InitStruct.Pin = LED_RED_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(LED_RED_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : CHARGE_INT_Pin */
+  GPIO_InitStruct.Pin = CHARGE_INT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(CHARGE_INT_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+//  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+//  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
+//  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+//  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
+}
+
+/* USER CODE BEGIN 4 */
+
+void ACC_INT1_GPIO_Init(void){
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+	/*Configure GPIO pin : ACC_INT_Pin */
+	GPIO_InitStruct.Pin = ACC_INT_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	HAL_GPIO_Init(ACC_INT_GPIO_Port, &GPIO_InitStruct);
+
+	return;
+}
+
+
+void ACC_INT1_GPIO_DeInit(void){
+	HAL_GPIO_DeInit(ACC_INT_GPIO_Port, ACC_INT_Pin);
+}
+
+
+//void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim){
+//
+//	uint16_t timercapture;
+//
+//		// for inference
+//	if(htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1){
+//		timercapture = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
+//		//HAL_GPIO_TogglePin(USER_LED_GPIO_Port, USER_LED_Pin);
+//		//HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
+//		if(ble_connect_status==BLE_CONNECTED) {
+//			__HAL_TIM_SET_COMPARE(htim, TIM_CHANNEL_1, (timercapture + BLE_TIMEOUT));
+//		} else {
+//			ble_state = BLE_NON_DISCOVERABLE;
+//			HAL_TIM_OC_Stop_IT(htim, TIM_CHANNEL_1);
+//		}
+//	}
+//
+//
+//}
+/* USER CODE END 4 */
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
+
+  /* USER CODE END Error_Handler_Debug */
+}
+
+#ifdef  USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
+  /* User can add his own implementation to report the file name and line number,
+     tex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */
+
+/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

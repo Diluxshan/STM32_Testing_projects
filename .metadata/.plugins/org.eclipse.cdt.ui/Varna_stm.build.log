@@ -1,0 +1,10 @@
+17:10:14 **** Incremental Build of configuration Debug for project Varna_stm ****
+make -j4 all 
+arm-none-eabi-size   Varna_stm.elf 
+   text	   data	    bss	    dec	    hex	filename
+   4948	     20	   1572	   6540	   198c	Varna_stm.elf
+Finished building: default.size.stdout
+ 
+
+17:10:15 Build Finished. 0 errors, 0 warnings. (took 694ms)
+

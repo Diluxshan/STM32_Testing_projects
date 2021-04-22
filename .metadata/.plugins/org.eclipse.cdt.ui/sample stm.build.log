@@ -1,0 +1,10 @@
+11:54:01 **** Incremental Build of configuration Debug for project sample stm ****
+make -j4 all 
+arm-none-eabi-size   sample\ stm.elf 
+   text	   data	    bss	    dec	    hex	filename
+  11892	     20	   1700	  13612	   352c	sample stm.elf
+Finished building: default.size.stdout
+ 
+
+11:54:01 Build Finished. 0 errors, 0 warnings. (took 645ms)
+

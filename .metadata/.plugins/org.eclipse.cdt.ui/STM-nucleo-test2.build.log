@@ -1,0 +1,20 @@
+15:23:47 **** Incremental Build of configuration Debug for project STM-nucleo-test2 ****
+make -j4 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m4 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32L476xx -c -I../Core/Inc -I../Drivers/STM32L4xx_HAL_Driver/Inc -I../Drivers/STM32L4xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32L4xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+arm-none-eabi-gcc -o "STM-nucleo-test2.elf" @"objects.list"   -mcpu=cortex-m4 -T"/home/dilux/STM32CubeIDE/workspace_1.6.0/STM-nucleo-test2/STM32L476RGTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="STM-nucleo-test2.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Finished building target: STM-nucleo-test2.elf
+ 
+arm-none-eabi-objdump -h -S  STM-nucleo-test2.elf  > "STM-nucleo-test2.list"
+arm-none-eabi-objcopy  -O binary  STM-nucleo-test2.elf  "STM-nucleo-test2.bin"
+arm-none-eabi-size   STM-nucleo-test2.elf 
+   text	   data	    bss	    dec	    hex	filename
+  12052	     20	   1700	  13772	   35cc	STM-nucleo-test2.elf
+Finished building: default.size.stdout
+Finished building: STM-nucleo-test2.bin
+ 
+ 
+Finished building: STM-nucleo-test2.list
+ 
+
+15:23:48 Build Finished. 0 errors, 0 warnings. (took 982ms)
+
